@@ -6,7 +6,6 @@ import json
 import logging
 import os
 from typing import Annotated
-from typing_extensions import Self
 from tqdm.auto import tqdm
 
 import httpx
@@ -27,20 +26,6 @@ class SingleChoice(pydantic.BaseModel):
 class TrueOrFalse(pydantic.BaseModel):
     question: Annotated[str, pydantic.Field(description='The question text')]
     solution: Annotated[bool, pydantic.Field(description='The correct answer')]
-
-#class MultipleChoice(pydantic.BaseModel):
-#    question: str
-#    answers: list[str]
-#    solution: list[str]
-#
-#class SingleChoice(pydantic.BaseModel):
-#    question: str
-#    answers: list[str]
-#    solution: str
-#
-#class TrueOrFalse(pydantic.BaseModel):
-#    question: str
-#    solution: bool
 
 
 harm_categories = [
@@ -166,7 +151,11 @@ async def generate_question_for_type(session, key: str, model: str, text: str, t
         try:
             res = await make_request(session,key, model, prompt, typ)
             if res is not None:
-                res = res['candidates'][0]['content']['parts'][0]['text']
+                res = res['candidates'][0]
+                if res.get('content') is None:
+                    print('NO "content" in res:',res)
+                    raise ValueError('No content in response.')
+                res = res['content']['parts'][0]['text']
                 res = res.removeprefix('```json\n').removesuffix('\n```')
                 print(res)
                 parsed = tryparse(res, typ)
@@ -180,6 +169,8 @@ async def generate_question_for_type(session, key: str, model: str, text: str, t
                 tries_because_of_429 += 1
                 backoff_secs = (backoff_base*tries_because_of_429)**2
                 await asyncio.sleep(backoff_secs)
+            else:
+                await asyncio.sleep(backoff_base)
         except Exception as e:
             tries += 1
             logging.error(f'Failed request #{tries} for reason {e}')
@@ -227,7 +218,7 @@ async def generate_all_questions(article_data_path: str, progress_dict_path: str
     progress_tracker = {k: v.copy() for k, v in progress_so_far.items()}
     bs = 3
     async with httpx.AsyncClient(timeout=25) as session:
-        while progress_tracker:
+        while sections_left(progress_tracker) > 0:
             for todo_url, todo_sections in tqdm(progress_so_far.items(), desc='Articles left to process'):
                 for i in tqdm(range(0,len(todo_sections), bs), desc='Sections left to process', total=len(todo_sections)//bs+1, leave=False, position=1, colour='green'):
                     max_i = min(len(todo_sections)-1, i+bs)
@@ -240,6 +231,9 @@ async def generate_all_questions(article_data_path: str, progress_dict_path: str
                         ) for todo_section in todo_sections[i:max_i]]
                     await process_batch(session, key, batch, progress_dict_path, progress_tracker, output_dir, model)
 
+def sections_left(progress: dict) -> int:
+    return sum([len(v) for v in progress.values()])
+
 async def process_batch(session, key, batch: list[Job], progress_dict_path:str, progress: dict, output_dir: str, model: str):
     tasks = [generate_question_for_type(session, key, model, job.section, job.typ, 'en.wikipedia' in job.url) for job in batch]
     res = await asyncio.gather(*tasks)
@@ -250,6 +244,15 @@ async def process_batch(session, key, batch: list[Job], progress_dict_path:str, 
             with open(os.path.join(output_dir, f'{url_enc}_{original_job.section_index}_{original_job.typ}.json'), 'w') as f:
                 json.dump(r, f)
             update_progress_dict(progress, original_job.url, original_job.section_index, original_job.typ, progress_dict_path)
+            try:
+                with open(os.path.join(output_dir, f'{url_enc}_{original_job.section_index}_{original_job.typ}.json'), 'w') as f:
+                    json.dump(r, f)
+                update_progress_dict(progress, original_job.url, original_job.section_index, original_job.typ, progress_dict_path)
+            except KeyboardInterrupt:
+                with open(os.path.join(output_dir, f'{url_enc}_{original_job.section_index}_{original_job.typ}.json'), 'w') as f:
+                    json.dump(r, f)
+                update_progress_dict(progress, original_job.url, original_job.section_index, original_job.typ, progress_dict_path)
+                exit()
 
 
 def read_article_data(file_path: str) -> dict:
