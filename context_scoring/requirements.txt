@@ -1,0 +1,8 @@
+tqdm
+huspacy
+spacy
+textstat
+gensim
+scikit-learn
+pandas
+datasets
