@@ -35,7 +35,7 @@ def create_result_table(conn) -> None:
     cursor = conn.cursor()
     cursor.execute(
         """
-        CREATE TABLE IF NOT EXISTS chat_responses1 (
+        CREATE TABLE IF NOT EXISTS chat_responses (
             run_name TEXT NOT NULL,
             conversation_index INTEGER NOT NULL,
             messages TEXT NOT NULL,
