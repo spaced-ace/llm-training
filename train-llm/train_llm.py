@@ -149,7 +149,7 @@ if __name__ == '__main__':
         '--dataset_name',
         type=str,
         help='name of the dataset to load from huggingface',
-        default='jazzysnake01/quizgen-chat-md',
+        default='jazzysnake01/quizgen-chat-sm',
     )
     parser.add_argument(
         '--model_name',
