@@ -122,6 +122,43 @@ def create_eval_table(conn: sqlite3.Connection) -> None:
     cur.close()
 
 
+def create_question_metadata_table(conn: sqlite3.Connection) -> None:
+    qm_table = """
+    CREATE TABLE IF NOT EXISTS question_metadata(
+        conversation_index INTEGER PRIMARY KEY NOT NULL,
+        lang TEXT NOT NULL,
+        q_type TEXT NOT NULL
+        );
+    """
+    qm_table_load = """
+        INSERT INTO question_metadata
+        SELECT DISTINCT 
+            r.conversation_index,
+            CASE 
+                WHEN r.messages LIKE '%Segítőkész%' THEN 'hu'
+                ELSE 'en'
+            END AS lang,
+            CASE 
+                WHEN r.messages LIKE '%multiple choice single answer (4 options)%'
+                    OR r.messages LIKE '%egy válaszlehetőséges (4 opciós)%' THEN 'mcsa'
+                WHEN r.messages LIKE '%multiple choice multiple answers (4 options)%'
+                    OR r.messages LIKE '%több válaszlehetőséges (4 opciós)%' THEN 'mcma'
+                ELSE 'boolean'
+            END AS q_type
+        FROM chat_responses r
+        WHERE r.conversation_index NOT IN (
+            SELECT conversation_index 
+            FROM question_metadata
+        );
+    """
+    cur = conn.cursor()
+    cur.execute('BEGIN')
+    cur.execute(qm_table)
+    cur.execute(qm_table_load)
+    cur.execute('COMMIT')
+    cur.close()
+
+
 def create_valid_questions_view(conn: sqlite3.Connection) -> None:
     valid_questions_view = """
     CREATE VIEW IF NOT EXISTS valid_questions AS
@@ -834,6 +871,7 @@ if __name__ == '__main__':
     args = parser.parse_args()
     conn = connect_to_db(args.db_path)
     create_eval_table(conn)
+    create_question_metadata_table(conn)
     create_valid_questions_view(conn)
     create_aggregate_stats_view(conn)
     if not args.report_only:
