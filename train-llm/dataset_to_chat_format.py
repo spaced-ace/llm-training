@@ -256,6 +256,18 @@ if __name__ == '__main__':
         default=0.5,
         help='minimum threshold of context score for inclusion in trainig',
     )
+    parser.add_argument(
+        '--test_frac',
+        type=float,
+        default=0.05,
+        help='fration of the data that will be dedicated to testing',
+    )
+    parser.add_argument(
+        '--val_frac',
+        type=float,
+        default=0.05,
+        help='fration of the data that will be dedicated to testing',
+    )
     args = parser.parse_args()
 
     ds = datasets.load_from_disk(args.dataset_directory)
@@ -271,5 +283,8 @@ if __name__ == '__main__':
     for key in ds.keys():
         ds_f[key] = format_dataset(ds[key])
     ds_f = datasets.DatasetDict(ds_f)
-    ds_f = train_test_split(ds_f, test_fraction=0.05, validation_fraction=0.05)
+    ds_f = train_test_split(
+        ds_f, test_fraction=args.test_frac, validation_fraction=args.val_frac
+    )
+    print(f'RESULTING DATASET:\n{ds_f}')
     ds_f.push_to_hub(args.repo_id, token=os.environ['HF_WRITE'])
