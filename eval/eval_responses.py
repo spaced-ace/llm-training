@@ -317,7 +317,7 @@ async def make_request(
         + api_key
     )
     gen_conf = {
-        'temperature': 0.2,
+        'temperature': 0.0,
         #'responseMimeType': 'application/json',
     }
     headers = {'Content-Type': 'application/json'}
