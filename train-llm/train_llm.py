@@ -15,7 +15,13 @@ from transformers import (
     EarlyStoppingCallback,
     pipeline,
 )
-from peft import LoraConfig, get_peft_model, prepare_model_for_kbit_training
+from peft import (
+    LoraConfig,
+    get_peft_model,
+    prepare_model_for_kbit_training,
+    PeftModel,
+    PeftConfig,
+)
 from trl import SFTTrainer
 
 os.environ['HF_HUB_CACHE'] = '/cache'
@@ -77,21 +83,31 @@ def save_conversation_to_db(
 
 
 def train_model(
-    model, tokenizer, ds: datasets.DatasetDict, model_save_path: str
+    model,
+    tokenizer,
+    ds: datasets.DatasetDict,
+    model_save_path: str,
+    epochs: int,
+    lora_r: int,
+    lora_alpha: int,
+    lora_path: str | None = None,
 ):
     model = prepare_model_for_kbit_training(model)
-
-    lora_config = LoraConfig(
-        r=4,
-        lora_alpha=8,
-        lora_dropout=0.05,
-        task_type='CAUSAL_LM',
-    )
-    model = get_peft_model(model, lora_config)
+    if lora_path is not None:
+        lora_config = PeftConfig.from_pretrained(lora_path)
+        model = PeftModel.from_pretrained(model, lora_path, config=lora_config)
+    else:
+        lora_config = LoraConfig(
+            r=lora_r,
+            lora_alpha=lora_alpha,
+            lora_dropout=0.05,
+            task_type='CAUSAL_LM',
+        )
+        model = get_peft_model(model, lora_config)
 
     training_args = TrainingArguments(
         output_dir=model_save_path,
-        num_train_epochs=1,
+        num_train_epochs=epochs,
         per_device_train_batch_size=2,
         per_device_eval_batch_size=1,
         gradient_accumulation_steps=4,
@@ -139,6 +155,12 @@ if __name__ == '__main__':
     parser.add_argument(
         '--eval_only',
         action='store_true',
+        help='Only use the model for prediciton on the eval set',
+    )
+    parser.add_argument(
+        '--train_only',
+        action='store_true',
+        help='Only use the model for training on the training set',
     )
     parser.add_argument(
         '--run_name',
@@ -157,6 +179,30 @@ if __name__ == '__main__':
         type=str,
         default='meta-llama/Meta-Llama-3-8B-Instruct',
         help='the repo id of the model that will be trained',
+    )
+    parser.add_argument(
+        '--lora_path',
+        type=str,
+        required=False,
+        help='Path to a pretrained lora adapter (overrides other lora config options)',
+    )
+    parser.add_argument(
+        '--epochs',
+        type=int,
+        default=1,
+        help='Number of epoch to train',
+    )
+    parser.add_argument(
+        '--lora_r',
+        type=int,
+        default=8,
+        help='Lora rank',
+    )
+    parser.add_argument(
+        '--lora_a',
+        type=int,
+        default=16,
+        help='Lora alpha',
     )
     args = parser.parse_args()
     wandb.login()
@@ -201,11 +247,30 @@ if __name__ == '__main__':
                 name=args.run_name,
             )
             run_name = args.run_name
-        model = train_model(model, tokenizer, ds, args.model_save_path)
+        model = train_model(
+            model,
+            tokenizer,
+            ds,
+            args.model_save_path,
+            args.epochs,
+            args.lora_r,
+            args.lora_a,
+            args.lora_path,
+        )
         wandb.finish()
+    elif args.eval_only and args.lora_path is not None:
+        lora_config = PeftConfig.from_pretrained(args.lora_path)
+        model = PeftModel.from_pretrained(
+            model, args.lora_path, config=lora_config
+        )
+    if args.train_only:
+        exit()
 
     if run_name is None:
-        run_name = f'eval_only_{args.model_name}'
+        if args.run_name is None:
+            run_name = f'eval_only_{args.model_name}'
+        else:
+            run_name = args.run_name
 
     chat_pipeline = pipeline(
         'text-generation',
