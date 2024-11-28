@@ -207,7 +207,7 @@ def create_aggregate_stats_view(conn: sqlite3.Connection) -> None:
             COUNT(*) as n
         FROM question_eval
         GROUP BY evaluator_model, run_name, metric_name
-        ORDER BY evaluator_model, metric_name, run_name
+        ORDER BY evaluator_model, metric_name, average
     """
     cur = conn.cursor()
     cur.execute('BEGIN')
@@ -231,7 +231,7 @@ def create_aggregate_stats_view(conn: sqlite3.Connection) -> None:
         INNER JOIN question_metadata qm
         ON qm.conversation_index = qe.conversation_index
         GROUP BY qe.evaluator_model, qe.run_name, qe.metric_name, qm.lang
-        ORDER BY qe.evaluator_model, qe.metric_name, qe.run_name, qm.lang
+        ORDER BY qe.evaluator_model, qe.metric_name, qm.lang, average
     """
     cur = conn.cursor()
     cur.execute('BEGIN')
@@ -809,9 +809,8 @@ def flatten_question_record(record: dict) -> dict:
     return res
 
 
-def print_records_as_table(records: list[dict]) -> None:
-    df = pd.DataFrame.from_records(records)
-    print(df)
+def records_to_df(records) -> pd.DataFrame:
+    return pd.DataFrame.from_records(records)
 
 
 if __name__ == '__main__':
@@ -868,6 +867,11 @@ if __name__ == '__main__':
         action='store_true',
         help='additionally group by question language',
     )
+    report_args.add_argument(
+        '--report_save_path',
+        type=str,
+        help='if specified, the report will be saved at the given path as csv',
+    )
     args = parser.parse_args()
     conn = connect_to_db(args.db_path)
     create_eval_table(conn)
@@ -917,4 +921,7 @@ if __name__ == '__main__':
         # print(*evaluated, sep='\n~~~~~~~~~~~~~~~~~~~~~~~~~~~~~\n')
         save_evaluated_questions(conn, evaluated, args.metric)
     res = get_aggregate_report(conn, args.group_by_lang)
-    print_records_as_table(res)
+    df = records_to_df(res)
+    print(df)
+    if args.report_save_path is not None:
+        df.to_csv(args.report_save_path, index=False)
